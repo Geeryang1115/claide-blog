@@ -33,6 +33,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (request.method === 'PUT') {
       const body = await request.json<{
         DeviceName: string
+        CustomerName: string
+        ProjectCode: string
         MacAddress: string
         IpAddress: string
         StartTime: string
@@ -40,14 +42,14 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         IsEnabled?: number
       }>()
 
-      const { DeviceName, MacAddress, IpAddress, StartTime, EndTime, IsEnabled = 1 } = body
+      const { DeviceName, CustomerName, ProjectCode, MacAddress, IpAddress, StartTime, EndTime, IsEnabled = 1 } = body
 
       await env.DB.prepare(
         `UPDATE DeviceLicense
-         SET DeviceName = ?, MacAddress = ?, IpAddress = ?, StartTime = ?, EndTime = ?, IsEnabled = ?, UpdateTime = datetime('now')
+         SET DeviceName = ?, CustomerName = ?, ProjectCode = ?, MacAddress = ?, IpAddress = ?, StartTime = ?, EndTime = ?, IsEnabled = ?, UpdateTime = datetime('now')
          WHERE Id = ?`
       )
-        .bind(DeviceName, MacAddress, IpAddress, StartTime, EndTime, IsEnabled, id)
+        .bind(DeviceName, CustomerName, ProjectCode, MacAddress, IpAddress, StartTime, EndTime, IsEnabled, id)
         .run()
 
       return Response.json({ success: true }, { headers: corsHeaders })

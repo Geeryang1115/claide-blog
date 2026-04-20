@@ -70,9 +70,9 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       if (search) {
         const like = `%${search}%`
-        sql += ' WHERE DeviceName LIKE ? OR MacAddress LIKE ? OR IpAddress LIKE ?'
-        countSql += ' WHERE DeviceName LIKE ? OR MacAddress LIKE ? OR IpAddress LIKE ?'
-        params.push(like, like, like)
+        sql += ' WHERE DeviceName LIKE ? OR CustomerName LIKE ? OR ProjectCode LIKE ? OR MacAddress LIKE ? OR IpAddress LIKE ?'
+        countSql += ' WHERE DeviceName LIKE ? OR CustomerName LIKE ? OR ProjectCode LIKE ? OR MacAddress LIKE ? OR IpAddress LIKE ?'
+        params.push(like, like, like, like, like)
       }
 
       sql += ' ORDER BY Id DESC LIMIT ? OFFSET ?'
@@ -80,7 +80,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       const [dataResult, countResult] = await Promise.all([
         env.DB.prepare(sql).bind(...params).all(),
-        env.DB.prepare(countSql).bind(...(search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [])).first<{ total: number }>(),
+        env.DB.prepare(countSql).bind(...(search ? [`%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`] : [])).first<{ total: number }>(),
       ])
 
       return Response.json(
@@ -97,6 +97,8 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     if (request.method === 'POST') {
       const body = await request.json<{
         DeviceName: string
+        CustomerName: string
+        ProjectCode: string
         MacAddress: string
         IpAddress: string
         StartTime: string
@@ -104,13 +106,13 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         IsEnabled?: number
       }>()
 
-      const { DeviceName, MacAddress, IpAddress, StartTime, EndTime, IsEnabled = 1 } = body
+      const { DeviceName, CustomerName, ProjectCode, MacAddress, IpAddress, StartTime, EndTime, IsEnabled = 1 } = body
 
       const result = await env.DB.prepare(
-        `INSERT INTO DeviceLicense (DeviceName, MacAddress, IpAddress, StartTime, EndTime, IsEnabled, UpdateTime)
-         VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`
+        `INSERT INTO DeviceLicense (DeviceName, CustomerName, ProjectCode, MacAddress, IpAddress, StartTime, EndTime, IsEnabled, UpdateTime)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
       )
-        .bind(DeviceName, MacAddress, IpAddress, StartTime, EndTime, IsEnabled)
+        .bind(DeviceName, CustomerName, ProjectCode, MacAddress, IpAddress, StartTime, EndTime, IsEnabled)
         .run()
 
       return Response.json(

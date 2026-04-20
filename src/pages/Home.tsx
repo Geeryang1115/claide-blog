@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
-import { Search, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Infinity, Shield, Clock, AlertTriangle } from 'lucide-react'
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { Search, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Infinity, Shield, Clock, AlertTriangle, Upload, FileSpreadsheet } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import Dashboard from '@/components/Dashboard'
 import type { DeviceLicense, DeviceFormData } from '@/types/device'
+import * as XLSX from 'xlsx'
 
 const API_BASE = '/api'
 
@@ -29,8 +30,17 @@ export default function Home() {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editingDevice, setEditingDevice] = useState<DeviceLicense | null>(null)
   const [filter, setFilter] = useState<string>('all')
+
+  // Excel import
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
+  const [importRows, setImportRows] = useState<DeviceFormData[]>([])
+  const [importLoading, setImportLoading] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
   const [formData, setFormData] = useState<DeviceFormData>({
     DeviceName: '',
+    CustomerName: '',
+    ProjectCode: '',
     MacAddress: '',
     IpAddress: '',
     StartTime: '',
@@ -64,6 +74,8 @@ export default function Home() {
     setEditingDevice(null)
     setFormData({
       DeviceName: '',
+      CustomerName: '',
+      ProjectCode: '',
       MacAddress: '',
       IpAddress: '',
       StartTime: '',
@@ -77,6 +89,8 @@ export default function Home() {
     setEditingDevice(device)
     setFormData({
       DeviceName: device.DeviceName,
+      CustomerName: device.CustomerName || '',
+      ProjectCode: device.ProjectCode || '',
       MacAddress: device.MacAddress,
       IpAddress: device.IpAddress,
       StartTime: device.StartTime,
@@ -109,6 +123,93 @@ export default function Home() {
     setFormData({ ...formData, EndTime: null })
   }
 
+  // Excel import
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const data = new Uint8Array(ev.target?.result as ArrayBuffer)
+      const workbook = XLSX.read(data, { type: 'array' })
+      const sheetName = workbook.SheetNames[0]
+      const worksheet = workbook.Sheets[sheetName]
+      const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as string[][]
+
+      if (json.length < 2) {
+        alert('Excel 文件数据为空')
+        return
+      }
+
+      const headers = json[0].map(h => String(h).trim())
+      const rows: DeviceFormData[] = []
+
+      for (let i = 1; i < json.length; i++) {
+        const row = json[i]
+        if (!row || row.length === 0) continue
+
+        const getValue = (name: string) => {
+          const idx = headers.findIndex(h => h.includes(name))
+          return idx >= 0 ? String(row[idx] || '').trim() : ''
+        }
+
+        const deviceName = getValue('设备') || getValue('Device')
+        const customerName = getValue('客户') || getValue('Customer')
+        const projectCode = getValue('项目') || getValue('Project')
+        const macAddress = getValue('MAC') || getValue('Mac')
+        const ipAddress = getValue('IP')
+
+        if (!deviceName && !macAddress && !ipAddress) continue
+
+        rows.push({
+          DeviceName: deviceName,
+          CustomerName: customerName,
+          ProjectCode: projectCode,
+          MacAddress: macAddress,
+          IpAddress: ipAddress,
+          StartTime: new Date().toISOString().slice(0, 16),
+          EndTime: '',
+          IsEnabled: 1,
+        })
+      }
+
+      setImportRows(rows)
+      setImportDialogOpen(true)
+    }
+    reader.readAsArrayBuffer(file)
+    e.target.value = ''
+  }
+
+  const handleImportConfirm = async () => {
+    setImportLoading(true)
+    try {
+      for (const row of importRows) {
+        await fetch(`${API_BASE}/devices`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(row),
+        })
+      }
+      setImportDialogOpen(false)
+      setImportRows([])
+      fetchDevices()
+    } finally {
+      setImportLoading(false)
+    }
+  }
+
+  const updateImportRow = (index: number, field: keyof DeviceFormData, value: any) => {
+    setImportRows(prev => prev.map((r, i) => i === index ? { ...r, [field]: value } : r))
+  }
+
+  const setAllEndTime = (value: string) => {
+    setImportRows(prev => prev.map(r => ({ ...r, EndTime: value })))
+  }
+
+  const setAllStartTime = (value: string) => {
+    setImportRows(prev => prev.map(r => ({ ...r, StartTime: value })))
+  }
+
   const filteredDevices = useMemo(() => {
     const now = new Date().getTime()
     return devices.filter((d) => {
@@ -135,9 +236,27 @@ export default function Home() {
             <Shield className="h-5 w-5 text-[#7B61FF]" />
             <h1 className="text-xl font-semibold tracking-tight">设备授权查询系统</h1>
           </div>
-          <Button onClick={handleAdd} className="bg-[#7B61FF] hover:bg-[#6a52e0] text-white rounded-full px-5">
-            <Plus className="mr-2 h-4 w-4" /> 添加设备
-          </Button>
+          <div className="flex gap-3">
+            <input
+              type="file"
+              ref={fileRef}
+              accept=".xlsx,.xls,.csv"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+            <Button
+              onClick={() => fileRef.current?.click()}
+              variant="outline"
+              className="border-white/10 text-[#EAEAEA] hover:bg-white/10 rounded-full"
+            >
+              <Upload className="mr-2 h-4 w-4" />
+              导入 Excel
+            </Button>
+            <Button onClick={handleAdd} className="bg-[#7B61FF] hover:bg-[#6a52e0] text-white rounded-full px-5">
+              <Plus className="mr-2 h-4 w-4" />
+              添加设备
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -148,7 +267,7 @@ export default function Home() {
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7A7A7A]" />
             <Input
-              placeholder="搜索设备名称、MAC 地址或 IP 地址..."
+              placeholder="搜索设备名称、客户名称、项目编号、MAC 或 IP..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-10 bg-white/5 border-white/10 text-[#EAEAEA] placeholder:text-[#7A7A7A] rounded-xl"
@@ -166,6 +285,8 @@ export default function Home() {
                 <tr className="border-b border-white/10 text-[#7A7A7A]">
                   <th className="px-6 py-4 font-medium">ID</th>
                   <th className="px-6 py-4 font-medium">设备名称</th>
+                  <th className="px-6 py-4 font-medium">客户名称</th>
+                  <th className="px-6 py-4 font-medium">项目编号</th>
                   <th className="px-6 py-4 font-medium">MAC 地址</th>
                   <th className="px-6 py-4 font-medium">IP 地址</th>
                   <th className="px-6 py-4 font-medium">授权起始</th>
@@ -176,9 +297,9 @@ export default function Home() {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={8} className="px-6 py-12 text-center text-[#7A7A7A]">加载中...</td></tr>
+                  <tr><td colSpan={10} className="px-6 py-12 text-center text-[#7A7A7A]">加载中...</td></tr>
                 ) : filteredDevices.length === 0 ? (
-                  <tr><td colSpan={8} className="px-6 py-12 text-center text-[#7A7A7A]">暂无数据</td></tr>
+                  <tr><td colSpan={10} className="px-6 py-12 text-center text-[#7A7A7A]">暂无数据</td></tr>
                 ) : (
                   filteredDevices.map((d) => {
                     const status = getLicenseStatus(d)
@@ -186,13 +307,13 @@ export default function Home() {
                       <tr key={d.Id} className="border-b border-white/5 hover:bg-white/[0.02] transition-colors">
                         <td className="px-6 py-4 text-[#7A7A7A]">{d.Id}</td>
                         <td className="px-6 py-4 font-medium text-[#EAEAEA]">{d.DeviceName}</td>
+                        <td className="px-6 py-4">{d.CustomerName || '-'}</td>
+                        <td className="px-6 py-4 font-mono text-[#7B61FF]">{d.ProjectCode || '-'}</td>
                         <td className="px-6 py-4 font-mono text-[#7B61FF]">{d.MacAddress}</td>
                         <td className="px-6 py-4 font-mono text-[#FF8C42]">{d.IpAddress}</td>
                         <td className="px-6 py-4">{d.StartTime}</td>
                         <td className="px-6 py-4">
-                          {d.EndTime ? (
-                            d.EndTime
-                          ) : (
+                          {d.EndTime ? d.EndTime : (
                             <span className="inline-flex items-center gap-1 text-cyan-400 font-medium">
                               <Infinity className="h-3.5 w-3.5" /> 永久授权
                             </span>
@@ -239,6 +360,7 @@ export default function Home() {
         </div>
       </main>
 
+      {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="bg-[#0A0A0C] border-white/10 text-[#EAEAEA] max-w-lg">
           <DialogHeader>
@@ -248,6 +370,16 @@ export default function Home() {
             <div>
               <label className="block text-xs text-[#7A7A7A] mb-1.5">设备名称</label>
               <Input required value={formData.DeviceName} onChange={(e) => setFormData({ ...formData, DeviceName: e.target.value })} className="bg-white/5 border-white/10 text-[#EAEAEA] rounded-xl" />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-[#7A7A7A] mb-1.5">客户名称</label>
+                <Input value={formData.CustomerName} onChange={(e) => setFormData({ ...formData, CustomerName: e.target.value })} className="bg-white/5 border-white/10 text-[#EAEAEA] rounded-xl" />
+              </div>
+              <div>
+                <label className="block text-xs text-[#7A7A7A] mb-1.5">项目编号</label>
+                <Input value={formData.ProjectCode} onChange={(e) => setFormData({ ...formData, ProjectCode: e.target.value })} className="bg-white/5 border-white/10 text-[#EAEAEA] rounded-xl font-mono" />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
@@ -291,11 +423,7 @@ export default function Home() {
                 {formData.EndTime === null ? '已设为永久授权' : '一键永久授权'}
               </button>
               {formData.EndTime === null && (
-                <button
-                  type="button"
-                  onClick={() => setFormData({ ...formData, EndTime: '' })}
-                  className="text-xs text-[#7A7A7A] hover:text-[#EAEAEA] underline"
-                >
+                <button type="button" onClick={() => setFormData({ ...formData, EndTime: '' })} className="text-xs text-[#7A7A7A] hover:text-[#EAEAEA] underline">
                   取消永久
                 </button>
               )}
@@ -319,6 +447,123 @@ export default function Home() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Dialog */}
+      <Dialog open={importDialogOpen} onOpenChange={setImportDialogOpen}>
+        <DialogContent className="bg-[#0A0A0C] border-white/10 text-[#EAEAEA] max-w-4xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+              导入确认 — 共 {importRows.length} 条记录
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-4">
+            {/* Batch time settings */}
+            <div className="flex gap-4 items-end p-4 rounded-xl bg-white/5 border border-white/10">
+              <div className="flex-1">
+                <label className="block text-xs text-[#7A7A7A] mb-1.5">批量设置起始时间</label>
+                <Input
+                  type="datetime-local"
+                  onChange={(e) => setAllStartTime(e.target.value)}
+                  className="bg-white/5 border-white/10 text-[#EAEAEA] rounded-xl [color-scheme:dark]"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs text-[#7A7A7A] mb-1.5">批量设置截止时间</label>
+                <Input
+                  type="datetime-local"
+                  onChange={(e) => setAllEndTime(e.target.value)}
+                  className="bg-white/5 border-white/10 text-[#EAEAEA] rounded-xl [color-scheme:dark]"
+                />
+              </div>
+              <Button
+                type="button"
+                onClick={() => setImportRows(prev => prev.map(r => ({ ...r, EndTime: null })))}
+                variant="outline"
+                className="border-cyan-500/30 text-cyan-400 hover:bg-cyan-500/10 rounded-xl"
+              >
+                <Infinity className="h-4 w-4 mr-1" />
+                全部永久
+              </Button>
+            </div>
+
+            {/* Preview table */}
+            <div className="liquid-glass rounded-xl overflow-hidden">
+              <div className="overflow-x-auto max-h-[400px]">
+                <table className="w-full text-left text-xs">
+                  <thead className="sticky top-0 bg-[#0A0A0C] z-10">
+                    <tr className="border-b border-white/10 text-[#7A7A7A]">
+                      <th className="px-4 py-3 font-medium">#</th>
+                      <th className="px-4 py-3 font-medium">设备名称</th>
+                      <th className="px-4 py-3 font-medium">客户名称</th>
+                      <th className="px-4 py-3 font-medium">项目编号</th>
+                      <th className="px-4 py-3 font-medium">MAC</th>
+                      <th className="px-4 py-3 font-medium">IP</th>
+                      <th className="px-4 py-3 font-medium">起始时间</th>
+                      <th className="px-4 py-3 font-medium">截止时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importRows.map((row, i) => (
+                      <tr key={i} className="border-b border-white/5">
+                        <td className="px-4 py-2 text-[#7A7A7A]">{i + 1}</td>
+                        <td className="px-4 py-2">{row.DeviceName}</td>
+                        <td className="px-4 py-2">{row.CustomerName || '-'}</td>
+                        <td className="px-4 py-2 font-mono text-[#7B61FF]">{row.ProjectCode || '-'}</td>
+                        <td className="px-4 py-2 font-mono">{row.MacAddress}</td>
+                        <td className="px-4 py-2 font-mono">{row.IpAddress}</td>
+                        <td className="px-4 py-2">
+                          <Input
+                            type="datetime-local"
+                            value={row.StartTime}
+                            onChange={(e) => updateImportRow(i, 'StartTime', e.target.value)}
+                            className="bg-white/5 border-white/10 text-[#EAEAEA] rounded-lg text-xs py-1 [color-scheme:dark]"
+                          />
+                        </td>
+                        <td className="px-4 py-2">
+                          {row.EndTime === null ? (
+                            <span className="inline-flex items-center gap-1 text-cyan-400 text-xs">
+                              <Infinity className="h-3 w-3" /> 永久
+                            </span>
+                          ) : (
+                            <Input
+                              type="datetime-local"
+                              value={row.EndTime || ''}
+                              onChange={(e) => updateImportRow(i, 'EndTime', e.target.value || null)}
+                              className="bg-white/5 border-white/10 text-[#EAEAEA] rounded-lg text-xs py-1 [color-scheme:dark]"
+                            />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => updateImportRow(i, 'EndTime', row.EndTime === null ? '' : null)}
+                            className="text-[10px] text-[#7A7A7A] hover:text-cyan-400 mt-1 underline"
+                          >
+                            {row.EndTime === null ? '取消永久' : '设为永久'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={() => setImportDialogOpen(false)} className="border-white/10 text-[#EAEAEA] hover:bg-white/10 rounded-xl">
+                取消
+              </Button>
+              <Button
+                onClick={handleImportConfirm}
+                disabled={importLoading || importRows.length === 0}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl px-6"
+              >
+                {importLoading ? '导入中...' : `确认导入 (${importRows.length} 条)`}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

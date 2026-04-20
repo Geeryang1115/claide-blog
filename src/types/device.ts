@@ -1,6 +1,8 @@
 export interface DeviceLicense {
   Id: number
   DeviceName: string
+  CustomerName: string
+  ProjectCode: string
   MacAddress: string
   IpAddress: string
   StartTime: string
@@ -12,6 +14,8 @@ export interface DeviceLicense {
 
 export interface DeviceFormData {
   DeviceName: string
+  CustomerName: string
+  ProjectCode: string
   MacAddress: string
   IpAddress: string
   StartTime: string
