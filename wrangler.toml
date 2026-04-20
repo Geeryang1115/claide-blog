@@ -1,0 +1,12 @@
+name = "device-license"
+compatibility_date = "2025-04-20"
+
+# Cloudflare Pages Functions uses this config for D1 bindings
+# Replace <your-database-id> with the actual D1 database ID from Cloudflare Dashboard
+[[d1_databases]]
+binding = "DB"
+database_name = "devicelicense"
+database_id = "ab2d6d08-a05c-4461-9a59-ff1765ba9574"
+
+[build]
+command = "npm run build"
