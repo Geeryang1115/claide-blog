@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
-import { Search, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Infinity, Shield, Clock, AlertTriangle, Upload, FileSpreadsheet } from 'lucide-react'
+import { Search, Plus, Pencil, Trash2, ChevronLeft, ChevronRight, Infinity, Shield, Clock, AlertTriangle, Upload, FileSpreadsheet, FolderKanban, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import Dashboard from '@/components/Dashboard'
 import type { DeviceLicense, DeviceFormData } from '@/types/device'
+import type { Project, ProjectFormData } from '@/types/project'
 import * as XLSX from 'xlsx'
 
 const API_BASE = '/api'
@@ -36,6 +37,17 @@ export default function Home() {
   const [importRows, setImportRows] = useState<DeviceFormData[]>([])
   const [importLoading, setImportLoading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Project ledger
+  const [projectDialogOpen, setProjectDialogOpen] = useState(false)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [projectSearch, setProjectSearch] = useState('')
+  const [projectImportDialogOpen, setProjectImportDialogOpen] = useState(false)
+  const [projectImportRows, setProjectImportRows] = useState<ProjectFormData[]>([])
+  const [projectImportLoading, setProjectImportLoading] = useState(false)
+  const [projectForm, setProjectForm] = useState<ProjectFormData>({ ProjectCode: '', ProjectName: '' })
+  const [editingProject, setEditingProject] = useState<Project | null>(null)
+  const projectFileRef = useRef<HTMLInputElement>(null)
 
   const [formData, setFormData] = useState<DeviceFormData>({
     DeviceName: '',
@@ -121,6 +133,115 @@ export default function Home() {
 
   const setPermanent = () => {
     setFormData({ ...formData, EndTime: null })
+  }
+
+  // Project functions
+  const fetchProjects = useCallback(async () => {
+    const res = await fetch(`${API_BASE}/projects?search=${encodeURIComponent(projectSearch)}`)
+    const json = await res.json()
+    setProjects(json.data || [])
+  }, [projectSearch])
+
+  useEffect(() => {
+    if (projectDialogOpen) fetchProjects()
+  }, [projectDialogOpen, fetchProjects])
+
+  const handleProjectFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const data = new Uint8Array(ev.target?.result as ArrayBuffer)
+      const workbook = XLSX.read(data, { type: 'array' })
+      const sheetName = workbook.SheetNames[0]
+      const worksheet = workbook.Sheets[sheetName]
+      const json = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as string[][]
+
+      if (json.length < 2) {
+        alert('CSV 文件数据为空')
+        return
+      }
+
+      const headers = json[0].map(h => String(h).trim())
+      const rows: ProjectFormData[] = []
+
+      for (let i = 1; i < json.length; i++) {
+        const row = json[i]
+        if (!row || row.length === 0) continue
+
+        const getValue = (keywords: string[]) => {
+          for (const kw of keywords) {
+            const idx = headers.findIndex(h => h.includes(kw))
+            if (idx >= 0) return String(row[idx] || '').trim()
+          }
+          return ''
+        }
+
+        const projectCode = getValue(['项目编号', '项目代码', 'ProjectCode', 'Project Code', '项目号', '编号'])
+        const projectName = getValue(['项目名称', '项目名', 'ProjectName', 'Project Name', '名称', '项目'])
+
+        if (!projectCode && !projectName) continue
+        if (!projectCode) continue
+
+        rows.push({ ProjectCode: projectCode, ProjectName: projectName })
+      }
+
+      setProjectImportRows(rows)
+      setProjectImportDialogOpen(true)
+    }
+    reader.readAsArrayBuffer(file)
+    e.target.value = ''
+  }
+
+  const handleProjectImportConfirm = async () => {
+    setProjectImportLoading(true)
+    try {
+      const res = await fetch(`${API_BASE}/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projects: projectImportRows }),
+      })
+      const json = await res.json()
+      setProjectImportDialogOpen(false)
+      setProjectImportRows([])
+      fetchProjects()
+      if (json.skipped?.length > 0) {
+        alert(`导入完成！新增 ${json.inserted} 条，跳过 ${json.skipped.length} 条（项目编号已存在）`)
+      }
+    } finally {
+      setProjectImportLoading(false)
+    }
+  }
+
+  const handleProjectSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (editingProject) {
+      await fetch(`${API_BASE}/projects`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ Id: editingProject.Id, ...projectForm }),
+      })
+      setEditingProject(null)
+    } else {
+      await fetch(`${API_BASE}/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projects: [projectForm] }),
+      })
+    }
+    setProjectForm({ ProjectCode: '', ProjectName: '' })
+    fetchProjects()
+  }
+
+  const handleProjectDelete = async (id: number) => {
+    if (!confirm('确定删除该项目？')) return
+    await fetch(`${API_BASE}/projects`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ Id: id }),
+    })
+    fetchProjects()
   }
 
   // Excel import
@@ -237,6 +358,14 @@ export default function Home() {
             <h1 className="text-xl font-semibold tracking-tight">设备授权查询系统</h1>
           </div>
           <div className="flex gap-3">
+            <Button
+              onClick={() => setProjectDialogOpen(true)}
+              variant="outline"
+              className="border-white/10 text-[#EAEAEA] hover:bg-white/10 rounded-full"
+            >
+              <FolderKanban className="mr-2 h-4 w-4" />
+              项目台账
+            </Button>
             <input
               type="file"
               ref={fileRef}
@@ -447,6 +576,189 @@ export default function Home() {
               </Button>
             </div>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Project Ledger Dialog */}
+      <Dialog open={projectDialogOpen} onOpenChange={setProjectDialogOpen}>
+        <DialogContent className="bg-[#0A0A0C] border-white/10 text-[#EAEAEA] max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FolderKanban className="h-5 w-5 text-[#7B61FF]" />
+              项目台账管理
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-4">
+            {/* Search + Import */}
+            <div className="flex gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#7A7A7A]" />
+                <Input
+                  placeholder="搜索项目编号或项目名称..."
+                  value={projectSearch}
+                  onChange={(e) => setProjectSearch(e.target.value)}
+                  className="pl-10 bg-white/5 border-white/10 text-[#EAEAEA] placeholder:text-[#7A7A7A] rounded-xl"
+                />
+              </div>
+              <input
+                type="file"
+                ref={projectFileRef}
+                accept=".csv,.xlsx,.xls"
+                onChange={handleProjectFileUpload}
+                className="hidden"
+              />
+              <Button
+                onClick={() => projectFileRef.current?.click()}
+                variant="outline"
+                className="border-white/10 text-[#EAEAEA] hover:bg-white/10 rounded-xl"
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                导入台账
+              </Button>
+            </div>
+
+            {/* Add project form */}
+            <form onSubmit={handleProjectSubmit} className="flex gap-3 items-end p-4 rounded-xl bg-white/5 border border-white/10">
+              <div className="flex-1">
+                <label className="block text-xs text-[#7A7A7A] mb-1.5">项目编号</label>
+                <Input
+                  required
+                  value={projectForm.ProjectCode}
+                  onChange={(e) => setProjectForm({ ...projectForm, ProjectCode: e.target.value })}
+                  className="bg-white/5 border-white/10 text-[#EAEAEA] rounded-xl font-mono"
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs text-[#7A7A7A] mb-1.5">项目名称</label>
+                <Input
+                  value={projectForm.ProjectName}
+                  onChange={(e) => setProjectForm({ ...projectForm, ProjectName: e.target.value })}
+                  className="bg-white/5 border-white/10 text-[#EAEAEA] rounded-xl"
+                />
+              </div>
+              <Button type="submit" className="bg-[#7B61FF] hover:bg-[#6a52e0] text-white rounded-xl">
+                {editingProject ? '更新' : '添加'}
+              </Button>
+              {editingProject && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => { setEditingProject(null); setProjectForm({ ProjectCode: '', ProjectName: '' }) }}
+                  className="border-white/10 text-[#EAEAEA] hover:bg-white/10 rounded-xl"
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              )}
+            </form>
+
+            {/* Project list */}
+            <div className="liquid-glass rounded-xl overflow-hidden">
+              <div className="overflow-x-auto max-h-[400px]">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-[#0A0A0C] z-10">
+                    <tr className="border-b border-white/10 text-[#7A7A7A]">
+                      <th className="px-4 py-3 font-medium">ID</th>
+                      <th className="px-4 py-3 font-medium">项目编号</th>
+                      <th className="px-4 py-3 font-medium">项目名称</th>
+                      <th className="px-4 py-3 font-medium text-right">操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projects.length === 0 ? (
+                      <tr><td colSpan={4} className="px-4 py-8 text-center text-[#7A7A7A]">暂无项目，请导入或手动添加</td></tr>
+                    ) : (
+                      projects.map((p) => (
+                        <tr key={p.Id} className="border-b border-white/5 hover:bg-white/[0.02]">
+                          <td className="px-4 py-3 text-[#7A7A7A]">{p.Id}</td>
+                          <td className="px-4 py-3 font-mono text-[#7B61FF]">{p.ProjectCode}</td>
+                          <td className="px-4 py-3">{p.ProjectName || '-'}</td>
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex justify-end gap-2">
+                              <button
+                                onClick={() => { setEditingProject(p); setProjectForm({ ProjectCode: p.ProjectCode, ProjectName: p.ProjectName }) }}
+                                className="p-1.5 rounded-lg hover:bg-white/10 text-[#7A7A7A] hover:text-[#EAEAEA]"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleProjectDelete(p.Id)}
+                                className="p-1.5 rounded-lg hover:bg-white/10 text-[#7A7A7A] hover:text-red-400"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Project Import Dialog */}
+      <Dialog open={projectImportDialogOpen} onOpenChange={setProjectImportDialogOpen}>
+        <DialogContent className="bg-[#0A0A0C] border-white/10 text-[#EAEAEA] max-w-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileSpreadsheet className="h-5 w-5 text-emerald-400" />
+              导入项目台账 — 共 {projectImportRows.length} 条
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 mt-4">
+            <div className="liquid-glass rounded-xl overflow-hidden">
+              <div className="overflow-x-auto max-h-[400px]">
+                <table className="w-full text-left text-sm">
+                  <thead className="sticky top-0 bg-[#0A0A0C] z-10">
+                    <tr className="border-b border-white/10 text-[#7A7A7A]">
+                      <th className="px-4 py-3 font-medium">#</th>
+                      <th className="px-4 py-3 font-medium">项目编号</th>
+                      <th className="px-4 py-3 font-medium">项目名称</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {projectImportRows.map((row, i) => (
+                      <tr key={i} className="border-b border-white/5">
+                        <td className="px-4 py-2 text-[#7A7A7A]">{i + 1}</td>
+                        <td className="px-4 py-2 font-mono text-[#7B61FF]">
+                          <Input
+                            value={row.ProjectCode}
+                            onChange={(e) => setProjectImportRows(prev => prev.map((r, idx) => idx === i ? { ...r, ProjectCode: e.target.value } : r))}
+                            className="bg-white/5 border-white/10 text-[#EAEAEA] rounded-lg text-xs py-1"
+                          />
+                        </td>
+                        <td className="px-4 py-2">
+                          <Input
+                            value={row.ProjectName}
+                            onChange={(e) => setProjectImportRows(prev => prev.map((r, idx) => idx === i ? { ...r, ProjectName: e.target.value } : r))}
+                            className="bg-white/5 border-white/10 text-[#EAEAEA] rounded-lg text-xs py-1"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <Button type="button" variant="outline" onClick={() => setProjectImportDialogOpen(false)} className="border-white/10 text-[#EAEAEA] hover:bg-white/10 rounded-xl">
+                取消
+              </Button>
+              <Button
+                onClick={handleProjectImportConfirm}
+                disabled={projectImportLoading || projectImportRows.length === 0}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl px-6"
+              >
+                {projectImportLoading ? '导入中...' : `确认导入 (${projectImportRows.length} 条)`}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 
