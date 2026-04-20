@@ -1,0 +1,91 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 240 20% 1.2%;
+    --foreground: 0 0% 92%;
+    --card: 240 10% 4%;
+    --card-foreground: 0 0% 92%;
+    --popover: 240 10% 4%;
+    --popover-foreground: 0 0% 92%;
+    --primary: 252 100% 68%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 240 3.7% 15.9%;
+    --muted-foreground: 0 0% 48%;
+    --accent: 24 100% 63%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 0 0% 100% / 0.08;
+    --input: 0 0% 100% / 0.08;
+    --ring: 252 100% 68%;
+    --radius: 0.625rem;
+  }
+
+  body {
+    @apply bg-[#030305] text-[#EAEAEA] antialiased;
+    font-family: 'Inter Tight', sans-serif;
+    overflow-x: hidden;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: auto;
+  }
+
+  html.lenis, html.lenis body {
+    height: auto;
+  }
+
+  .lenis.lenis-smooth {
+    scroll-behavior: auto !important;
+  }
+
+  .lenis.lenis-smooth [data-lenis-prevent] {
+    overscroll-behavior: contain;
+  }
+
+  .lenis.lenis-stopped {
+    overflow: hidden;
+  }
+}
+
+@layer components {
+  .liquid-glass {
+    background: rgba(255, 255, 255, 0.03);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  }
+
+  .liquid-glass-hover {
+    transition: background 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .liquid-glass-hover:hover {
+    background: rgba(255, 255, 255, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+  }
+
+  .highlight-word {
+    display: inline-block;
+    margin-right: 0.3em;
+    color: #7A7A7A;
+    transition: color 0.1s ease;
+  }
+
+  .font-mono-label {
+    font-family: 'Geist Mono', 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+  }
+}
