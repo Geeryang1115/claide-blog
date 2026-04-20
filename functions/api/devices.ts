@@ -6,7 +6,6 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context
   const url = new URL(request.url)
 
-  // CORS headers
   const corsHeaders = {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -19,6 +18,46 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   try {
+    // Stats endpoint: /api/devices?stats=1
+    if (request.method === 'GET' && url.searchParams.get('stats') === '1') {
+      const now = new Date().toISOString()
+      const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString()
+
+      const [
+        totalRow,
+        enabledRow,
+        disabledRow,
+        expiringSoonRow,
+        expiredRow,
+        permanentRow,
+      ] = await Promise.all([
+        env.DB.prepare('SELECT COUNT(*) as total FROM DeviceLicense').first<{ total: number }>(),
+        env.DB.prepare('SELECT COUNT(*) as count FROM DeviceLicense WHERE IsEnabled = 1').first<{ count: number }>(),
+        env.DB.prepare('SELECT COUNT(*) as count FROM DeviceLicense WHERE IsEnabled = 0').first<{ count: number }>(),
+        env.DB.prepare(
+          `SELECT COUNT(*) as count FROM DeviceLicense
+           WHERE EndTime IS NOT NULL AND EndTime > ? AND EndTime <= ? AND IsEnabled = 1`
+        ).bind(now, sevenDaysLater).first<{ count: number }>(),
+        env.DB.prepare(
+          `SELECT COUNT(*) as count FROM DeviceLicense
+           WHERE EndTime IS NOT NULL AND EndTime < ? AND IsEnabled = 1`
+        ).bind(now).first<{ count: number }>(),
+        env.DB.prepare('SELECT COUNT(*) as count FROM DeviceLicense WHERE EndTime IS NULL').first<{ count: number }>(),
+      ])
+
+      return Response.json(
+        {
+          total: totalRow?.total || 0,
+          enabled: enabledRow?.count || 0,
+          disabled: disabledRow?.count || 0,
+          expiringSoon: expiringSoonRow?.count || 0,
+          expired: expiredRow?.count || 0,
+          permanent: permanentRow?.count || 0,
+        },
+        { headers: corsHeaders }
+      )
+    }
+
     if (request.method === 'GET') {
       const search = url.searchParams.get('search') || ''
       const page = parseInt(url.searchParams.get('page') || '1', 10)
@@ -27,7 +66,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       let sql = 'SELECT * FROM DeviceLicense'
       let countSql = 'SELECT COUNT(*) as total FROM DeviceLicense'
-      const params: (string | number)[] = []
+      const params: (string | number | null)[] = []
 
       if (search) {
         const like = `%${search}%`
@@ -41,7 +80,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
       const [dataResult, countResult] = await Promise.all([
         env.DB.prepare(sql).bind(...params).all(),
-        env.DB.prepare(countSql).bind(...(search ? [like, like, like] : [])).first<{ total: number }>(),
+        env.DB.prepare(countSql).bind(...(search ? [`%${search}%`, `%${search}%`, `%${search}%`] : [])).first<{ total: number }>(),
       ])
 
       return Response.json(
@@ -61,7 +100,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         MacAddress: string
         IpAddress: string
         StartTime: string
-        EndTime: string
+        EndTime: string | null
         IsEnabled?: number
       }>()
 

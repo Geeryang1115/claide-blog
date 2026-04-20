@@ -4,7 +4,7 @@ export interface DeviceLicense {
   MacAddress: string
   IpAddress: string
   StartTime: string
-  EndTime: string
+  EndTime: string | null
   IsEnabled: number
   CreateTime: string
   UpdateTime: string | null
@@ -15,6 +15,15 @@ export interface DeviceFormData {
   MacAddress: string
   IpAddress: string
   StartTime: string
-  EndTime: string
+  EndTime: string | null
   IsEnabled: number
+}
+
+export interface DeviceStats {
+  total: number
+  enabled: number
+  disabled: number
+  expiringSoon: number
+  expired: number
+  permanent: number
 }

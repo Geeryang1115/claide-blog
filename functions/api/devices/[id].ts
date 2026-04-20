@@ -36,7 +36,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
         MacAddress: string
         IpAddress: string
         StartTime: string
-        EndTime: string
+        EndTime: string | null
         IsEnabled?: number
       }>()
 
